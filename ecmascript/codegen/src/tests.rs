@@ -561,6 +561,56 @@ fn issue_1452_1() {
     assert_min("async foo => 0", "async foo=>0");
 }
 
+#[test]
+fn issue_1573() {
+    use swc_ecma_transforms::typescript;
+    use swc_ecma_visit::Fold;
+
+    let from = "function myFunc({ ...data }: { field: string, }) {}";
+
+    let output = ::testing::run_test(false, |cm, handler| {
+        let src = cm.new_source_file(FileName::Real("custom.js".into()), from.to_string());
+        println!(
+            "--------------------\nSource: \n{}\nPos: {:?} ~ {:?}\n",
+            from, src.start_pos, src.end_pos
+        );
+
+        let comments = Default::default();
+        let res = {
+            let mut parser = Parser::new(
+                Syntax::Typescript(Default::default()),
+                StringInput::from(&*src),
+                Some(&comments),
+            );
+            let res = parser
+                .parse_module()
+                .map_err(|e| e.into_diagnostic(handler).emit());
+
+            for err in parser.take_errors() {
+                err.into_diagnostic(handler).emit()
+            }
+
+            res?
+        };
+
+        let res = typescript::strip().fold_module(res);
+
+        let out = Builder {
+            cfg: Config { minify: true },
+            cm,
+            comments,
+        }
+        .text(from, |e| e.emit_module(&res).unwrap());
+        Ok(out)
+    })
+    .unwrap();
+
+    assert_eq!(
+        DebugUsingDisplay(&output),
+        DebugUsingDisplay("function myFunc({...data}){}"),
+    )
+}
+
 #[derive(Debug, Clone)]
 struct Buf(Arc<RwLock<Vec<u8>>>);
 impl Write for Buf {
